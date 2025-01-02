@@ -17,6 +17,9 @@ class CryptoTradeBot:
         self.load_operations()
         self.simulated = True  # Simulated trading mode
         self.usdt_balance, self.btc_balance = Decimal("0"), Decimal("0")
+        self.trade_pair = os.getenv("TRADE_PAIR")
+        self.fiat = self.trade_pair[:3]
+        self.crypto = self.trade_pair[3:]
         
         # Initial balances
         if self.simulated:
@@ -27,7 +30,7 @@ class CryptoTradeBot:
         # Adjustable thresholds
         self.profit_threshold = Decimal("0.005")  # 0.5% profit
         self.drop_threshold = Decimal("0.002")  # 0.2% drop
-        self.trade_amount_btc = Decimal("0.001")
+        self.trade_amount_btc = Decimal("0.0001")
 
         # Ensure initial operation exists
         if not self.operations:
@@ -96,6 +99,7 @@ class CryptoTradeBot:
             log_file.write(formatted_message + "\n")
 
     def fetch_current_price(self, symbol="BTCUSDT"):
+        symbol = self.trade_pair
         ticker = self.client.get_ticker(symbol=symbol)
         return Decimal(ticker["lastPrice"])
 
@@ -112,15 +116,15 @@ class CryptoTradeBot:
         else:
             account_info = self.client.get_account()
             balances = {asset["asset"]: Decimal(asset["free"]) for asset in account_info["balances"] if Decimal(asset["free"]) > 0}
-            usdt_balance = balances.get("USDT", Decimal("0"))
-            self.usdt_balance = balances.get("USDT", Decimal("0"))
-            self.btc_balance = balances.get("BTC", Decimal("0"))
-            btc_balance = balances.get("BTC", Decimal("0"))
+            usdt_balance = balances.get(self.fiat, Decimal("0"))
+            self.usdt_balance = balances.get(self.fiat, Decimal("0"))
+            self.btc_balance = balances.get(self.crypto, Decimal("0"))
+            btc_balance = balances.get(self.crypto, Decimal("0"))
             current_price = self.fetch_current_price()
         
-        self.log(f"USDT Balance: {round(float(usdt_balance), 2)}", "blue")
-        self.log(f"BTC Balance: {round(float(btc_balance), 4)}", "yellow")
-        self.log(f"Current BTC Price: {round(float(current_price), 2)} USDT", "green")
+        self.log(f"{self.fiat} Balance: {round(float(usdt_balance), 2)}", "blue")
+        self.log(f"{self.crypto} Balance: {round(float(btc_balance), 4)}", "yellow")
+        self.log(f"Current {self.crypto} Price: {round(float(current_price), 2)} {self.fiat}", "green")
         return usdt_balance, btc_balance
 
     def buy(self, price):
@@ -128,7 +132,7 @@ class CryptoTradeBot:
             self.usdt_balance -= price * self.trade_amount_btc
             
             order = self.client.create_order(
-                symbol="BTCUSDT",
+                symbol=self.trade_pair,
                 side="BUY",
                 type="MARKET",
                 quantity=float(self.trade_amount_btc)
@@ -147,18 +151,18 @@ class CryptoTradeBot:
             
             self.update_fake_balances("buy", price * self.trade_amount_btc, self.trade_amount_btc)
         else:
-            self.log("Insufficient USDT balance to buy.", "red")
+            self.log(f"Insufficient {self.fiat} balance to buy.", "red")
 
     def sell(self, operation_index, price):
         if self.btc_balance < Decimal(self.operations[operation_index]["amount"]):
-            self.log("Insufficient BTC balance to sell.", "red")
+            self.log(f"Insufficient {self.crypto} balance to sell.", "red")
             return
         else:
             operation = self.operations[operation_index]
             amount = Decimal(operation["amount"])
             self.usdt_balance += price * amount
             order = self.client.create_order(
-                symbol="BTCUSDT",
+                symbol=self.trade_pair,
                 side="SELL",
                 type="MARKET",
                 quantity=float(amount)
@@ -179,15 +183,11 @@ class CryptoTradeBot:
             if current_price >= buy_price:
                 self.sell(i, current_price)
                 break
-
-            # Check for drop threshold
-            if len(self.operations) == 0:
-                self.buy(current_price)
-                time.sleep(2)  # Avoid API rate limits
                 
             if current_price <= buy_price * (1 - self.drop_threshold):
                 self.buy(current_price)
-                time.sleep(2)  # Avoid API rate limits
+                # time.sleep(2)  # Avoid API rate limits
+                break
 
     def initialize_operations(self):
         current_price = self.fetch_current_price()
@@ -209,9 +209,13 @@ class CryptoTradeBot:
                 
                 self.evaluate_operations()
                 
-                self.log(f"Current USDT balance: {round(float(self.usdt_balance), 2)}", "blue")
-                self.log(f"Current BTC balance: {round(float(self.btc_balance), 4)}", "yellow")
+                self.log(f"Current {self.fiat} balance: {round(float(self.usdt_balance), 2)}", "blue")
+                self.log(f"Current {self.crypto} balance: {round(float(self.btc_balance), 4)}", "yellow")
                 self.log(f"Operations in queue: {len(self.operations)}", "cyan")
+                
+                # Check for drop threshold
+                if len(self.operations) == 0:
+                    self.buy(self.fetch_current_price())
                 
                 time.sleep(10)  # Check every 10 seconds
         except KeyboardInterrupt:
