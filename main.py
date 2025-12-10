@@ -38,6 +38,8 @@ class CryptoTradeBot:
 
         # Estratégia: basic, breakout, sma, rsi, dca
         self.strategy = os.getenv("STRATEGY", "basic").lower()
+        
+        self.budget_limit = Decimal(os.getenv("BUDGET_LIMIT", "0"))  # 0 = sem limite
 
         # Inicializa saldos
         if self.simulated:
@@ -195,33 +197,37 @@ class CryptoTradeBot:
         """
         try:
             cost = (Decimal(price) * self.trade_amount_btc)
+            
             if self.usdt_balance >= cost:
-                # Simulação: atualiza fake balances e fila operações
-                if self.simulated:
-                    self.usdt_balance -= cost
-                    self.btc_balance += self.trade_amount_btc
-                    self.update_fake_balances("buy", cost, self.trade_amount_btc)
-                    order_id = "sim-buy-" + datetime.now().strftime("%Y%m%d%H%M%S")
-                else:
-                    order = self.client.create_order(
-                        symbol=self.trade_pair,
-                        side="BUY",
-                        type="MARKET",
-                        quantity=float(self.trade_amount_btc)
-                    )
-                    order_id = order.get("orderId", str(order))
+                if self.budget_limit > 0 and (self.usdt_balance - cost) < self.budget_limit:
+                    # Simulação: atualiza fake balances e fila operações
+                    if self.simulated:
+                        self.usdt_balance -= cost
+                        self.btc_balance += self.trade_amount_btc
+                        self.update_fake_balances("buy", cost, self.trade_amount_btc)
+                        order_id = "sim-buy-" + datetime.now().strftime("%Y%m%d%H%M%S")
+                    else:
+                        order = self.client.create_order(
+                            symbol=self.trade_pair,
+                            side="BUY",
+                            type="MARKET",
+                            quantity=float(self.trade_amount_btc)
+                        )
+                        order_id = order.get("orderId", str(order))
 
-                # calcula target (preço de venda alvo)
-                target = Decimal(price) * (Decimal("1") + self.profit_threshold)
-                operation = {
-                    "price": str(price),
-                    "amount": str(self.trade_amount_btc),
-                    "target": str(target),
-                    "timestamp": datetime.now().isoformat()
-                }
-                self.operations.append(operation)
-                self.save_operations()
-                self.log(f"Buy Order Placed: {order_id} | amount: {self.trade_amount_btc} @ {price}", "green")
+                    # calcula target (preço de venda alvo)
+                    target = Decimal(price) * (Decimal("1") + self.profit_threshold)
+                    operation = {
+                        "price": str(price),
+                        "amount": str(self.trade_amount_btc),
+                        "target": str(target),
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    self.operations.append(operation)
+                    self.save_operations()
+                    self.log(f"Buy Order Placed: {order_id} | amount: {self.trade_amount_btc} @ {price}", "green")
+                else:
+                    self.log(f"Limite de compras alcançado, aguarde vender para comprar novamente!", "red")
             else:
                 self.log(f"Saldo insuficiente ({self.fiat}) para comprar. Necessário {float(cost):.8f}", "red")
         except Exception as e:
@@ -425,10 +431,10 @@ class CryptoTradeBot:
 
                 # Janela para reconexão/limpeza (exemplo: 22:30 até 00:59)
                 # Ajuste conforme necessidade
-                if (now.hour == 22 and now.minute >= 30) or (now.hour in (23, 0)):
-                    self.log("Janela de reinicialização/pausa programada (22:30-00:59).", "red")
-                    time.sleep(60)
-                    continue
+                # if (now.hour == 22 and now.minute >= 30) or (now.hour in (23, 0)):
+                #     self.log("Janela de reinicialização/pausa programada (22:30-00:59).", "red")
+                #     time.sleep(60)
+                #     continue
 
                 self.usdt_balance, self.btc_balance = self.fetch_balances()
 
