@@ -91,7 +91,7 @@ class CryptoTradeBot:
     def get_fake_balances(self):
         # cria arquivo padrão caso não exista
         if not os.path.exists("fake_balances.json"):
-            template = {"usdt": 1000.0, "btc": 0.0}
+            template = {"usdt": 185.00, "btc": 0.0000}
             with open("fake_balances.json", "w", encoding="utf-8") as f:
                 json.dump(template, f, indent=4)
             return Decimal(str(template["usdt"])), Decimal(str(template["btc"]))
